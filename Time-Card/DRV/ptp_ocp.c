@@ -20,6 +20,8 @@
 #include <linux/spinlock.h>
 #include <linux/miscdevice.h>
 #include <linux/poll.h>
+#include <linux/device.h>
+#include <linux/cdev.h>
 
 #ifndef PCI_VENDOR_ID_FACEBOOK
 #define PCI_VENDOR_ID_FACEBOOK 0x1d9b
@@ -133,6 +135,13 @@ struct pps_reg {
 	u32	status;
 };
 
+struct oscillator_reg {
+	u32 ctrl;
+	u32 value;
+	u32 adjust;
+	u32 temp;
+};
+
 #define PPS_STATUS_FILTER_ERR	BIT(0)
 #define PPS_STATUS_SUPERV_ERR	BIT(1)
 
@@ -164,6 +173,18 @@ struct phasemeter_device {
 
 #define PPS_DEVICE_IRQ_ACK 0x10
 
+struct oscillator_device {
+	struct oscillator_reg __iomem *reg;
+	struct device *dev;
+	spinlock_t lock;
+};
+
+static int oscillator_major = 0;
+static int oscillator_minor = 0;
+
+static struct class *oscillator_class;
+static struct cdev oscillator_cdev;
+
 struct ptp_ocp {
 	struct pci_dev		*pdev;
 	struct ocp_resource	*res;
@@ -184,6 +205,7 @@ struct ptp_ocp {
 	struct pps_device	*pps_device;
 	void __iomem		*pps_device_reg;
 	struct phasemeter_device *phasemeter;
+	struct oscillator_device *osc;
 	struct devlink_health_reporter *health;
 	struct proc_dir_entry	*proc;
 	struct timer_list	watchdog;
@@ -215,6 +237,8 @@ static int ptp_ocp_register_serial(struct ptp_ocp *bp,
 				   struct ocp_resource *res);
 static int ptp_ocp_register_pps(struct ptp_ocp *bp, struct ocp_resource * res);
 static int ptp_ocp_register_phasemeter(struct ptp_ocp *bp, struct ocp_resource *res);
+static int ptp_ocp_register_oscillator(struct ptp_ocp *bp, struct ocp_resource *res);
+
 
 
 #define bp_assign_entry(bp, res, val) ({				\
@@ -245,6 +269,9 @@ static int ptp_ocp_register_phasemeter(struct ptp_ocp *bp, struct ocp_resource *
 
 #define OCP_PHASEMETER_RESOURCE(member) \
 	OCP_RES_LOCATION(member), .setup = ptp_ocp_register_phasemeter
+
+#define OCP_OSCILLATOR_RESOURCE(member) \
+	OCP_RES_LOCATION(member), .setup = ptp_ocp_register_oscillator
 
 /* This is the MSI vector mapping used.
  * 0: N/C
@@ -341,6 +368,10 @@ static struct ocp_resource ocp_o2s_resource[] = {
 	{
 		OCP_PPS_RESOURCE(pps),
 		.offset = 0x00330000, .size = 0x20, .irq_vec = MSI_VECTOR_PPS
+	},
+	{
+		OCP_OSCILLATOR_RESOURCE(osc),
+		.offset = 0x00340000, .size = 0x20
 	},
 	{}
 };
@@ -1221,6 +1252,8 @@ ptp_ocp_register_serial(struct ptp_ocp *bp, struct ocp_resource *res)
 	return 0;
 }
 
+
+/* PPS */
 static struct pps_source_info pps_ktimer_info = {
 	.name = "ocp-pps",
 	.path = "/dev/pps-ocp-clock",
@@ -1266,6 +1299,7 @@ ptp_ocp_register_pps(struct ptp_ocp *bp, struct ocp_resource *res)
 	return 0;
 }
 
+/* Phasemeter */
 static irqreturn_t
 phasemeter_irq_handler(int irq, void* dev_id)
 {
@@ -1485,6 +1519,97 @@ ptp_ocp_register_phasemeter(struct ptp_ocp *bp, struct ocp_resource *res)
 	return 0;
 }
 
+/* Oscillator */
+
+int
+oscillator_open(struct inode * inode, struct file * filp)
+{
+	pr_info("Someone tried to open me\n");
+	return 0;
+}
+
+int
+oscillator_release(struct inode * inode, struct file * filp)
+{
+	pr_info("Someone closed me\n");
+	return 0;
+}
+
+ssize_t
+oscillator_read (struct file *filp, char __user * buf, size_t count,
+	loff_t * offset)
+{
+	pr_info("Nothing to read guy\n");
+	return 0;
+}
+
+
+ssize_t
+oscillator_write(struct file * filp, const char __user * buf, size_t count,
+	loff_t * offset)
+{
+	pr_info("Can't accept any data guy\n");
+	return count;
+}
+
+struct file_operations oscillator_fops = {
+	open:		oscillator_open,
+	release:	oscillator_release,
+	read:		oscillator_read,
+	write:		oscillator_write,
+};
+
+static int
+ptp_ocp_register_oscillator(struct ptp_ocp *bp, struct ocp_resource *res)
+{
+	struct oscillator_device *osc;
+	int err;
+	dev_t devno = 0;
+
+	osc = devm_kzalloc(&bp->pdev->dev, sizeof(*osc), GFP_KERNEL);
+	if (osc == NULL)
+		return -ENOMEM;
+	
+	osc->reg = ptp_ocp_get_mem(bp, res);
+	spin_lock_init(&osc->lock);
+
+	err = alloc_chrdev_region(&devno, oscillator_major, oscillator_minor, "oscillator-mRO50");
+	if (err < 0) {
+		dev_err(&bp->pdev->dev, "alloc_chrdev_region failed: %d\n", err);
+		return err;
+	}
+	oscillator_major = MAJOR(devno);
+	oscillator_minor = MINOR(devno);
+
+	oscillator_class = class_create(THIS_MODULE, "oscillator_class");
+	if (IS_ERR(oscillator_class)) {
+		dev_err(&bp->pdev->dev, "class_create failed: %d\n", err);
+		unregister_chrdev_region(MKDEV(oscillator_major, oscillator_minor), 1);
+		return PTR_ERR(oscillator_class);
+	}
+
+	cdev_init(&oscillator_cdev, &oscillator_fops);
+	oscillator_cdev.owner = THIS_MODULE;
+	cdev_add(&oscillator_cdev, devno, 1);
+
+	osc->dev = device_create(
+		oscillator_class,
+		&bp->pdev->dev,
+		devno,
+		NULL,
+		"oscillator_mRO50"
+	);
+	if (IS_ERR(osc->dev)) {
+		dev_err(&bp->pdev->dev, "device_create failed: %d\n", err);
+		class_destroy(oscillator_class);
+		unregister_chrdev_region(devno, 1);
+		return -1;
+	}
+
+	bp->osc = osc;
+	return 0;
+}
+
 static int
 ptp_ocp_register_mem(struct ptp_ocp *bp, struct ocp_resource *res)
 {
@@ -1701,6 +1826,17 @@ ptp_ocp_detach(struct ptp_ocp *bp)
 		iowrite32(0, bp->phasemeter->reg + PHASEMETER_IRQ_ENABLE);
 		misc_deregister(&bp->phasemeter->misc);
 		free_irq(pci_irq_vector(bp->pdev, MSI_VECTOR_PHASEMETER), bp);
+	}
+	if (bp->osc) {
+		unregister_chrdev_region(
+			MKDEV(oscillator_major, oscillator_minor), 1
+		);
+		device_destroy(
+			oscillator_class,
+			MKDEV(oscillator_major, oscillator_minor)
+		);
+		cdev_del(&oscillator_cdev);
+		class_destroy(oscillator_class);
 	}
 	if (bp->n_irqs)
 		pci_free_irq_vectors(bp->pdev);
