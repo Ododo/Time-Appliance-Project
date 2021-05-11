@@ -23,6 +23,8 @@
 #include <linux/device.h>
 #include <linux/cdev.h>
 
+#include "oscillator_mRO50_ioctl.h"
+
 #ifndef PCI_VENDOR_ID_FACEBOOK
 #define PCI_VENDOR_ID_FACEBOOK 0x1d9b
 #endif
@@ -1653,11 +1655,119 @@ oscillator_write(struct file * filp, const char __user * buf, size_t count,
 	return sizeof(freq_adjust);
 }
 
+static int
+__read_oscillator_locked(struct oscillator_reg *reg, u32 ctrl, u32 *buf)
+{
+	int timeout;
+
+	timeout = 0;
+	ctrl |= OSC_CTRL_READ_CMD;
+	iowrite32(ctrl, &reg->ctrl);
+	do {
+		ctrl = ioread32(&reg->ctrl);
+		timeout++;
+		udelay(1000);
+		if (timeout > 1000) {
+			break;
+		}
+	} while (!(ctrl & OSC_CTRL_READ_DONE));
+
+	if (timeout > 1000)
+		return -ETIMEDOUT;
+	
+	*buf = ioread32(&reg->value);
+	return 0;
+}
+
+static int
+__write_oscillator_locked(struct oscillator_reg *reg, u32 ctrl, u32 adjust)
+{
+	int timeout;
+
+	timeout = 0;
+	ctrl |= OSC_CTRL_ADJUST_CMD;
+
+	iowrite32(adjust, &reg->adjust);
+	iowrite32(ctrl, &reg->ctrl);
+	do {
+		ctrl = ioread32(&reg->ctrl);
+		udelay(1000);
+		timeout++;
+		if (timeout > 1000)
+			break;
+	} while (!(ctrl & OSC_CTRL_ADJUST_CMD));
+
+	if (timeout > 1000)
+		return -ETIMEDOUT;
+
+	return sizeof(adjust);
+}
+
+static long
+oscillator_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+	struct oscillator_device *osc;
+	struct oscillator_reg *osc_reg;
+	u32 ctrl;
+	u32 adjust;
+	u32 freq_value;
+	u32 temp_value;
+	int ret;
+
+	ret = 0;
+	osc = filp->private_data;
+	osc_reg = (struct oscillator_reg *) osc->reg;
+
+	mutex_lock(&osc->lock);
+	ctrl = ioread32(&osc_reg->ctrl);
+
+	switch(cmd){
+		case MRO50_READ_FINE:
+			ctrl &= OSC_CTRL_READ_TYPE_FINE;
+
+			ret = __read_oscillator_locked(osc_reg, ctrl, &freq_value);
+			if (ret == 0) {
+				put_user(freq_value, (u32 *) arg);
+			}
+			break;
+		case MRO50_READ_COARSE:
+			ctrl |= OSC_CTRL_READ_TYPE_COARSE;
+
+			ret = __read_oscillator_locked(osc_reg, ctrl, &freq_value);
+			if (ret == 0) {
+				put_user(freq_value, (u32 *) arg);
+			}
+			break;
+		case MRO50_ADJUST_FINE:
+			get_user(adjust, (u32 *) arg);
+			ctrl &= OSC_CTRL_ADJUST_TYPE_FINE;
+
+			ret = __write_oscillator_locked(osc_reg, ctrl, adjust);
+			break;
+		case MRO50_ADJUST_COARSE:
+			get_user(adjust, (u32 *) arg);
+			ctrl |= OSC_CTRL_ADJUST_TYPE_COARSE;
+
+			ret = __write_oscillator_locked(osc_reg, ctrl, adjust);
+			break;
+		case MRO50_READ_TEMP:
+			temp_value = ioread32(&osc_reg->temp);
+			put_user(temp_value, (u32 *) arg);
+			break;
+		default:
+			mutex_unlock(&osc->lock);
+			return -ENOTTY;
+	}
+	mutex_unlock(&osc->lock);
+	return ret;
+}
+
 struct file_operations oscillator_fops = {
 	open:		oscillator_open,
 	release:	oscillator_release,
 	read:		oscillator_read,
 	write:		oscillator_write,
+	.unlocked_ioctl = oscillator_ioctl,
 };
 
 static int
