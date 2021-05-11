@@ -173,17 +173,26 @@ struct phasemeter_device {
 
 #define PPS_DEVICE_IRQ_ACK 0x10
 
+#define OSC_CTRL_ENABLE				(1 << 0)
+#define OSC_CTRL_LOCK				(1 << 1)
+#define OSC_CTRL_READ_CMD			(1 << 2)
+#define OSC_CTRL_READ_TYPE_COARSE	(1 << 3)
+#define OSC_CTRL_READ_TYPE_FINE		~(1 << 3)
+#define OSC_CTRL_READ_DONE			(1 << 4)
+#define OSC_CTRL_ADJUST_CMD			(1 << 5)
+#define OSC_CTRL_ADJUST_TYPE_COARSE	(1 << 6)
+#define OSC_CTRL_ADJUST_TYPE_FINE	~(1 << 6)
+
 struct oscillator_device {
 	struct oscillator_reg __iomem *reg;
-	struct device *dev;
-	spinlock_t lock;
+	struct cdev cdev;
+	struct mutex lock;
 };
 
 static int oscillator_major = 0;
 static int oscillator_minor = 0;
 
 static struct class *oscillator_class;
-static struct cdev oscillator_cdev;
 
 struct ptp_ocp {
 	struct pci_dev		*pdev;
@@ -1524,14 +1533,39 @@ ptp_ocp_register_phasemeter(struct ptp_ocp *bp, struct ocp_resource *res)
 int
 oscillator_open(struct inode * inode, struct file * filp)
 {
-	pr_info("Someone tried to open me\n");
+	u32 ctrl;
+	struct oscillator_device *osc = NULL;
+	struct oscillator_reg *osc_reg;
+
+	osc = container_of(inode->i_cdev, struct oscillator_device, cdev);
+	osc_reg = (struct oscillator_reg *) osc->reg;
+
+	mutex_lock(&osc->lock);
+	ctrl = ioread32(&osc_reg->ctrl);
+	ctrl |= OSC_CTRL_ENABLE;
+	iowrite32(ctrl, &osc_reg->ctrl);
+	mutex_unlock(&osc->lock);
+
+	filp->private_data = osc;
 	return 0;
 }
 
 int
 oscillator_release(struct inode * inode, struct file * filp)
 {
-	pr_info("Someone closed me\n");
+	u32 ctrl;
+	struct oscillator_device *osc = NULL;
+	struct oscillator_reg *osc_reg;
+
+	osc = container_of(inode->i_cdev, struct oscillator_device, cdev);
+	osc_reg = (struct oscillator_reg *) osc->reg;
+	
+	mutex_lock(&osc->lock);
+	ctrl = ioread32(&osc_reg->ctrl);
+	ctrl &= ~(OSC_CTRL_ENABLE);
+	iowrite32(ctrl, &osc_reg->ctrl);
+	mutex_unlock(&osc->lock);
+
 	return 0;
 }
 
@@ -1539,8 +1573,43 @@ ssize_t
 oscillator_read (struct file *filp, char __user * buf, size_t count,
 	loff_t * offset)
 {
-	pr_info("Nothing to read guy\n");
-	return 0;
+	u32 ctrl;
+	u32 freq_value;
+	int timeout;
+	struct oscillator_device *osc;
+	struct oscillator_reg *osc_reg;
+
+	timeout = 0;
+	osc = filp->private_data;
+	osc_reg = (struct oscillator_reg *) osc->reg;
+
+	mutex_lock(&osc->lock);
+	ctrl = ioread32(&osc_reg->ctrl);
+
+	// Read fine
+	// Need to set bit 3 to 0
+	ctrl &= OSC_CTRL_READ_TYPE_FINE;
+	ctrl |= OSC_CTRL_READ_CMD;
+	iowrite32(ctrl, &osc_reg->ctrl);
+	do {
+		ctrl = ioread32(&osc_reg->ctrl);
+		timeout++;
+		udelay(1000);
+		if (timeout > 1000) {
+			break;
+		}
+	} while (!(ctrl & OSC_CTRL_READ_DONE));
+
+	freq_value = ioread32(&osc->reg->value);
+	mutex_unlock(&osc->lock);
+
+	if (timeout > 1000)
+		return -ETIMEDOUT;
+	printk("freq_value is %d", freq_value);
+	if (put_user(freq_value, (u32 *) buf) != 0)
+		return -EIO;
+
+	return sizeof(freq_value);
 }
 
 
@@ -1548,8 +1617,40 @@ ssize_t
 oscillator_write(struct file * filp, const char __user * buf, size_t count,
 	loff_t * offset)
 {
-	pr_info("Can't accept any data guy\n");
-	return count;
+	u32 ctrl;
+	u32 freq_adjust;
+	int timeout;
+	struct oscillator_device *osc;
+	struct oscillator_reg *osc_reg;
+
+	timeout = 0;
+	osc = filp->private_data;
+	osc_reg = (struct oscillator_reg *) osc->reg;
+
+	mutex_lock(&osc->lock);
+
+	if(get_user(freq_adjust, (u32 *) buf) != 0)
+		return -EIO;
+	iowrite32(freq_adjust, &osc->reg->adjust);
+	ctrl = ioread32(&osc_reg->ctrl);
+	// Adjust fine
+	// need to set bit 6 to 0
+	ctrl &= OSC_CTRL_ADJUST_TYPE_FINE;
+	ctrl |= OSC_CTRL_ADJUST_CMD;
+	iowrite32(ctrl, &osc_reg->ctrl);
+
+	do {
+		ctrl = ioread32(&osc_reg->ctrl);
+		udelay(1000);
+		timeout++;
+		if (timeout > 1000)
+			break;
+	} while (!(ctrl & OSC_CTRL_ADJUST_CMD));
+	mutex_unlock(&osc->lock);
+
+	if (timeout > 1000)
+		return -ETIMEDOUT;
+	return sizeof(freq_adjust);
 }
 
 struct file_operations oscillator_fops = {
@@ -1563,6 +1664,7 @@ static int
 ptp_ocp_register_oscillator(struct ptp_ocp *bp, struct ocp_resource *res)
 {
 	struct oscillator_device *osc;
+	struct device * dev;
 	int err;
 	dev_t devno = 0;
 
@@ -1571,7 +1673,7 @@ ptp_ocp_register_oscillator(struct ptp_ocp *bp, struct ocp_resource *res)
 		return -ENOMEM;
 	
 	osc->reg = ptp_ocp_get_mem(bp, res);
-	spin_lock_init(&osc->lock);
+	mutex_init(&osc->lock);
 
 	err = alloc_chrdev_region(&devno, oscillator_major, oscillator_minor, "oscillator-mRO50");
 	if (err < 0) {
@@ -1588,18 +1690,19 @@ ptp_ocp_register_oscillator(struct ptp_ocp *bp, struct ocp_resource *res)
 		return PTR_ERR(oscillator_class);
 	}
 
-	cdev_init(&oscillator_cdev, &oscillator_fops);
-	oscillator_cdev.owner = THIS_MODULE;
-	cdev_add(&oscillator_cdev, devno, 1);
+	cdev_init(&osc->cdev, &oscillator_fops);
+	osc->cdev.owner = THIS_MODULE;
+	osc->cdev.ops = &oscillator_fops;
+	err = cdev_add(&osc->cdev, devno, 1);
 
-	osc->dev = device_create(
+	dev = device_create(
 		oscillator_class,
 		&bp->pdev->dev,
 		devno,
-		NULL,
+		osc->reg,
 		"oscillator_mRO50"
 	);
-	if (IS_ERR(osc->dev)) {
+	if (IS_ERR(dev)) {
 		dev_err(&bp->pdev->dev, "device_create failed: %d\n", err);
 		class_destroy(oscillator_class);
 		unregister_chrdev_region(devno, 1);
@@ -1835,7 +1938,7 @@ ptp_ocp_detach(struct ptp_ocp *bp)
 			oscillator_class,
 			MKDEV(oscillator_major, oscillator_minor)
 		);
-		cdev_del(&oscillator_cdev);
+		cdev_del(&bp->osc->cdev);
 		class_destroy(oscillator_class);
 	}
 	if (bp->n_irqs)
