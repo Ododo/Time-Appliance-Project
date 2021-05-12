@@ -17,4 +17,9 @@ start:
 stop:
 	sudo rmmod ptp_ocp
 
-.PHONY: start stop
+ioctl:
+	gcc -std=gnu99 -o test_ioctl test_ioctl.c
+	sudo ./test_ioctl
+
+
+.PHONY: start stop ioctl
