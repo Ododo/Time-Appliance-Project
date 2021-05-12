@@ -794,235 +794,235 @@ ptp_ocp_info(struct ptp_ocp *bp)
 		ptp_ocp_tod_info(bp);
 }
 
-static const struct devlink_param ptp_ocp_devlink_params[] = {
-};
+// static const struct devlink_param ptp_ocp_devlink_params[] = {
+// };
 
-static void
-ptp_ocp_devlink_set_params_init_values(struct devlink *devlink)
-{
-}
+// static void
+// ptp_ocp_devlink_set_params_init_values(struct devlink *devlink)
+// {
+// }
 
-static int
-ptp_ocp_devlink_register(struct devlink *devlink, struct device *dev)
-{
-	int err;
+// static int
+// ptp_ocp_devlink_register(struct devlink *devlink, struct device *dev)
+// {
+// 	int err;
 
-	err = devlink_register(devlink, dev);
-	if (err)
-		return err;
+// 	err = devlink_register(devlink, dev);
+// 	if (err)
+// 		return err;
 
-	err = devlink_params_register(devlink, ptp_ocp_devlink_params,
-				      ARRAY_SIZE(ptp_ocp_devlink_params));
-	ptp_ocp_devlink_set_params_init_values(devlink);
-	if (err)
-		goto out;
-	devlink_params_publish(devlink);
+// 	err = devlink_params_register(devlink, ptp_ocp_devlink_params,
+// 				      ARRAY_SIZE(ptp_ocp_devlink_params));
+// 	ptp_ocp_devlink_set_params_init_values(devlink);
+// 	if (err)
+// 		goto out;
+// 	devlink_params_publish(devlink);
 
-	return 0;
+// 	return 0;
 
-out:
-	devlink_unregister(devlink);
-	return err;
-}
+// out:
+// 	devlink_unregister(devlink);
+// 	return err;
+// }
 
-static void
-ptp_ocp_devlink_unregister(struct devlink *devlink)
-{
-	devlink_params_unregister(devlink, ptp_ocp_devlink_params,
-				  ARRAY_SIZE(ptp_ocp_devlink_params));
-	devlink_unregister(devlink);
-}
+// static void
+// ptp_ocp_devlink_unregister(struct devlink *devlink)
+// {
+// 	devlink_params_unregister(devlink, ptp_ocp_devlink_params,
+// 				  ARRAY_SIZE(ptp_ocp_devlink_params));
+// 	devlink_unregister(devlink);
+// }
 
-static struct device *
-ptp_ocp_find_flash(struct ptp_ocp *bp)
-{
-	struct device *dev, *last;
+// static struct device *
+// ptp_ocp_find_flash(struct ptp_ocp *bp)
+// {
+// 	struct device *dev, *last;
 
-	last = NULL;
-	dev = &bp->spi_flash->dev;
+// 	last = NULL;
+// 	dev = &bp->spi_flash->dev;
 
-	while ((dev = device_find_child(dev, NULL, ptp_ocp_firstchild))) {
-		if (!strcmp("mtd", dev_bus_name(dev)))
-			break;
-		put_device(last);
-		last = dev;
-	}
-	put_device(last);
+// 	while ((dev = device_find_child(dev, NULL, ptp_ocp_firstchild))) {
+// 		if (!strcmp("mtd", dev_bus_name(dev)))
+// 			break;
+// 		put_device(last);
+// 		last = dev;
+// 	}
+// 	put_device(last);
 
-	return dev;
-}
+// 	return dev;
+// }
 
-static int
-ptp_ocp_devlink_flash(struct devlink *devlink, struct device *dev,
-		      const struct firmware *fw)
-{
-	struct mtd_info *mtd = dev_get_drvdata(dev);
-	size_t off, len, resid, wrote;
-	struct erase_info erase;
-	size_t base, blksz;
-	int err;
+// static int
+// ptp_ocp_devlink_flash(struct devlink *devlink, struct device *dev,
+// 		      const struct firmware *fw)
+// {
+// 	struct mtd_info *mtd = dev_get_drvdata(dev);
+// 	size_t off, len, resid, wrote;
+// 	struct erase_info erase;
+// 	size_t base, blksz;
+// 	int err;
 
-	off = 0;
-	base = 1024 * 4096;		/* Timecard.bin start address */
-	blksz = 4096;
-	resid = fw->size;
+// 	off = 0;
+// 	base = 1024 * 4096;		/* Timecard.bin start address */
+// 	blksz = 4096;
+// 	resid = fw->size;
 
-	while (resid) {
-		devlink_flash_update_status_notify(devlink, "Flashing",
-						   NULL, off, fw->size);
+// 	while (resid) {
+// 		devlink_flash_update_status_notify(devlink, "Flashing",
+// 						   NULL, off, fw->size);
 
-		len = min_t(size_t, resid, blksz);
-		erase.addr = base + off;
-		erase.len = blksz;
+// 		len = min_t(size_t, resid, blksz);
+// 		erase.addr = base + off;
+// 		erase.len = blksz;
 
-		err = mtd_erase(mtd, &erase);
-		if (err)
-			goto out;
+// 		err = mtd_erase(mtd, &erase);
+// 		if (err)
+// 			goto out;
 
-		err = mtd_write(mtd, base + off, len, &wrote, &fw->data[off]);
-		if (err)
-			goto out;
+// 		err = mtd_write(mtd, base + off, len, &wrote, &fw->data[off]);
+// 		if (err)
+// 			goto out;
 
-		off += blksz;
-		resid -= len;
-	}
-out:
-	return err;
-}
+// 		off += blksz;
+// 		resid -= len;
+// 	}
+// out:
+// 	return err;
+// }
 
-static int
-ptp_ocp_devlink_flash_update(struct devlink *devlink,
-			     struct devlink_flash_update_params *params,
-			     struct netlink_ext_ack *extack)
-{
-	struct ptp_ocp *bp = devlink_priv(devlink);
-	struct device *dev;
-	const char *msg;
-	int err;
+// static int
+// ptp_ocp_devlink_flash_update(struct devlink *devlink,
+// 			     struct devlink_flash_update_params *params,
+// 			     struct netlink_ext_ack *extack)
+// {
+// 	struct ptp_ocp *bp = devlink_priv(devlink);
+// 	struct device *dev;
+// 	const char *msg;
+// 	int err;
 
-	dev = ptp_ocp_find_flash(bp);
-	if (!dev) {
-		dev_err(&bp->pdev->dev, "Can't find Flash SPI adapter\n");
-		return -ENODEV;
-	}
+// 	dev = ptp_ocp_find_flash(bp);
+// 	if (!dev) {
+// 		dev_err(&bp->pdev->dev, "Can't find Flash SPI adapter\n");
+// 		return -ENODEV;
+// 	}
 
-	devlink_flash_update_status_notify(devlink, "Preparing to flash",
-					   NULL, 0, 0);
+// 	devlink_flash_update_status_notify(devlink, "Preparing to flash",
+// 					   NULL, 0, 0);
 
-	err = ptp_ocp_devlink_flash(devlink, dev, params->fw);
+// 	err = ptp_ocp_devlink_flash(devlink, dev, params->fw);
 
-	msg = err ? "Flash error" : "Flash complete";
-	devlink_flash_update_status_notify(devlink, msg, NULL, 0, 0);
+// 	msg = err ? "Flash error" : "Flash complete";
+// 	devlink_flash_update_status_notify(devlink, msg, NULL, 0, 0);
 
-	bp->pending_image = true;
+// 	bp->pending_image = true;
 
-	put_device(dev);
-	return err;
-}
+// 	put_device(dev);
+// 	return err;
+// }
 
-static int
-ptp_ocp_devlink_info_get(struct devlink *devlink, struct devlink_info_req *req,
-			 struct netlink_ext_ack *extack)
-{
-	struct ptp_ocp *bp = devlink_priv(devlink);
-	char buf[32];
-	int err;
+// static int
+// ptp_ocp_devlink_info_get(struct devlink *devlink, struct devlink_info_req *req,
+// 			 struct netlink_ext_ack *extack)
+// {
+// 	struct ptp_ocp *bp = devlink_priv(devlink);
+// 	char buf[32];
+// 	int err;
 
-	err = devlink_info_driver_name_put(req, KBUILD_MODNAME);
-	if (err)
-		return err;
+// 	err = devlink_info_driver_name_put(req, KBUILD_MODNAME);
+// 	if (err)
+// 		return err;
 
-	if (bp->pending_image) {
-		err = devlink_info_version_stored_put(req,
-						      "timecard", "pending");
-		if (err)
-			return err;
-	}
+// 	if (bp->pending_image) {
+// 		err = devlink_info_version_stored_put(req,
+// 						      "timecard", "pending");
+// 		if (err)
+// 			return err;
+// 	}
 
-	if (bp->image) {
-		u32 ver = bp->image->version;
-		if (ver & 0xffff) {
-			sprintf(buf, "%d", ver);
-			err = devlink_info_version_running_put(req,
-					"timecard", buf);
-		} else {
-			sprintf(buf, "%d", ver >> 16);
-			err = devlink_info_version_running_put(req,
-					"golden flash", buf);
-		}
-		if (err)
-			return err;
-	}
+// 	if (bp->image) {
+// 		u32 ver = bp->image->version;
+// 		if (ver & 0xffff) {
+// 			sprintf(buf, "%d", ver);
+// 			err = devlink_info_version_running_put(req,
+// 					"timecard", buf);
+// 		} else {
+// 			sprintf(buf, "%d", ver >> 16);
+// 			err = devlink_info_version_running_put(req,
+// 					"golden flash", buf);
+// 		}
+// 		if (err)
+// 			return err;
+// 	}
 
-	if (!bp->has_serial)
-		ptp_ocp_get_serial_number(bp);
+// 	if (!bp->has_serial)
+// 		ptp_ocp_get_serial_number(bp);
 
-	if (bp->has_serial) {
-		sprintf(buf, "%pM", bp->serial);
-		err = devlink_info_serial_number_put(req, buf);
-		if (err)
-			return err;
-	}
+// 	if (bp->has_serial) {
+// 		sprintf(buf, "%pM", bp->serial);
+// 		err = devlink_info_serial_number_put(req, buf);
+// 		if (err)
+// 			return err;
+// 	}
 
-	return 0;
-}
+// 	return 0;
+// }
 
-static const struct devlink_ops ptp_ocp_devlink_ops = {
-	.flash_update = ptp_ocp_devlink_flash_update,
-	.info_get = ptp_ocp_devlink_info_get,
-};
+// static const struct devlink_ops ptp_ocp_devlink_ops = {
+// 	.flash_update = ptp_ocp_devlink_flash_update,
+// 	.info_get = ptp_ocp_devlink_info_get,
+// };
 
-static int
-ptp_ocp_health_diagnose(struct devlink_health_reporter *reporter,
-			struct devlink_fmsg *fmsg,
-			struct netlink_ext_ack *extack)
-{
-	struct ptp_ocp *bp = devlink_health_reporter_priv(reporter);
-	char buf[32];
-	int err;
+// static int
+// ptp_ocp_health_diagnose(struct devlink_health_reporter *reporter,
+// 			struct devlink_fmsg *fmsg,
+// 			struct netlink_ext_ack *extack)
+// {
+// 	struct ptp_ocp *bp = devlink_health_reporter_priv(reporter);
+// 	char buf[32];
+// 	int err;
 
-	if (!bp->gps_lost)
-		return 0;
+// 	if (!bp->gps_lost)
+// 		return 0;
 
-	sprintf(buf, "%ptT", &bp->gps_lost);
-	err = devlink_fmsg_string_pair_put(fmsg, "Lost sync at", buf);
-	if (err)
-		return err;
+// 	sprintf(buf, "%ptT", &bp->gps_lost);
+// 	err = devlink_fmsg_string_pair_put(fmsg, "Lost sync at", buf);
+// 	if (err)
+// 		return err;
 
-	return 0;
-}
+// 	return 0;
+// }
 
-static void
-ptp_ocp_health_update(struct ptp_ocp *bp)
-{
-	int state;
+// static void
+// ptp_ocp_health_update(struct ptp_ocp *bp)
+// {
+// 	int state;
 
-	state = bp->gps_lost ? DEVLINK_HEALTH_REPORTER_STATE_ERROR
-			     : DEVLINK_HEALTH_REPORTER_STATE_HEALTHY;
+// 	state = bp->gps_lost ? DEVLINK_HEALTH_REPORTER_STATE_ERROR
+// 			     : DEVLINK_HEALTH_REPORTER_STATE_HEALTHY;
 
-	if (bp->gps_lost)
-		devlink_health_report(bp->health, "No GPS signal", NULL);
+// 	if (bp->gps_lost)
+// 		devlink_health_report(bp->health, "No GPS signal", NULL);
 
-	devlink_health_reporter_state_update(bp->health, state);
-}
+// 	devlink_health_reporter_state_update(bp->health, state);
+// }
 
-static const struct devlink_health_reporter_ops ptp_ocp_health_ops = {
-	.name = "gps_sync",
-	.diagnose = ptp_ocp_health_diagnose,
-};
+// static const struct devlink_health_reporter_ops ptp_ocp_health_ops = {
+// 	.name = "gps_sync",
+// 	.diagnose = ptp_ocp_health_diagnose,
+// };
 
-static void
-ptp_ocp_devlink_health_register(struct devlink *devlink)
-{
-	struct ptp_ocp *bp = devlink_priv(devlink);
-	struct devlink_health_reporter *r;
+// static void
+// ptp_ocp_devlink_health_register(struct devlink *devlink)
+// {
+// 	struct ptp_ocp *bp = devlink_priv(devlink);
+// 	struct devlink_health_reporter *r;
 
-	r = devlink_health_reporter_create(devlink, &ptp_ocp_health_ops, 0, bp);
-	if (IS_ERR(r))
-		dev_err(&bp->pdev->dev, "Failed to create reporter, err %ld\n",
-			PTR_ERR(r));
-	bp->health = r;
-}
+// 	r = devlink_health_reporter_create(devlink, &ptp_ocp_health_ops, 0, bp);
+// 	if (IS_ERR(r))
+// 		dev_err(&bp->pdev->dev, "Failed to create reporter, err %ld\n",
+// 			PTR_ERR(r));
+// 	bp->health = r;
+// }
 
 static void __iomem *
 __ptp_ocp_get_mem(struct ptp_ocp *bp, unsigned long start, int size)
@@ -2067,17 +2067,22 @@ ptp_ocp_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	struct pci_device_id *card_id;
 	int err;
 
-	devlink = devlink_alloc(&ptp_ocp_devlink_ops, sizeof(*bp));
-	if (!devlink) {
-		dev_err(&pdev->dev, "devlink_alloc failed\n");
+	// devlink = devlink_alloc(&ptp_ocp_devlink_ops, sizeof(*bp));
+	// if (!devlink) {
+	// 	dev_err(&pdev->dev, "devlink_alloc failed\n");
+	// 	return -ENOMEM;
+	// }
+
+	// err = ptp_ocp_devlink_register(devlink, &pdev->dev);
+	// if (err)
+	// 	goto out_free;
+
+	// bp = devlink_priv(devlink);
+	bp = kzalloc(sizeof(*bp), GFP_KERNEL);
+	if (!bp) {
+		dev_err(&pdev->dev, "kzalloc\n");
 		return -ENOMEM;
 	}
-
-	err = ptp_ocp_devlink_register(devlink, &pdev->dev);
-	if (err)
-		goto out_free;
-
-	bp = devlink_priv(devlink);
 
 	card_id = pci_match_id(id, pdev);
 
@@ -2136,7 +2141,7 @@ ptp_ocp_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	ptp_ocp_info(bp);
 	ptp_resource_summary(bp);
-	ptp_ocp_devlink_health_register(devlink);
+	// ptp_ocp_devlink_health_register(devlink);
 
 	return 0;
 
@@ -2145,7 +2150,7 @@ out:
 	pci_disable_device(pdev);
 out_unregister:
 	pci_set_drvdata(pdev, NULL);
-	ptp_ocp_devlink_unregister(devlink);
+	// ptp_ocp_devlink_unregister(devlink);
 out_free:
 	devlink_free(devlink);
 
@@ -2156,14 +2161,14 @@ static void
 ptp_ocp_remove(struct pci_dev *pdev)
 {
 	struct ptp_ocp *bp = pci_get_drvdata(pdev);
-	struct devlink *devlink = priv_to_devlink(bp);
+	// struct devlink *devlink = priv_to_devlink(bp);
 
 	ptp_ocp_detach(bp);
 	pci_disable_device(pdev);
 	pci_set_drvdata(pdev, NULL);
 
-	ptp_ocp_devlink_unregister(devlink);
-	devlink_free(devlink);
+	// ptp_ocp_devlink_unregister(devlink);
+	// devlink_free(devlink);
 }
 
 static struct pci_driver ptp_ocp_driver = {
