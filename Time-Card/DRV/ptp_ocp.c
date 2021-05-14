@@ -1640,12 +1640,14 @@ oscillator_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		case MRO50_READ_FINE:
 			ctrl &= OSC_CTRL_READ_TYPE_FINE;
 			ret = __read_oscillator_locked(osc_reg, ctrl, &freq_value);
+			printk("Read FINE, ret is %d and value is %d", ret, freq_value);
 			if (ret == 0)
 				put_user(freq_value, (u32 *) arg);
 			break;
 		case MRO50_READ_COARSE:
 			ctrl |= OSC_CTRL_READ_TYPE_COARSE;
 			ret = __read_oscillator_locked(osc_reg, ctrl, &freq_value);
+			printk("Read COARSE, ret is %d and value is %d", ret, freq_value);
 			if (ret == 0)
 				put_user(freq_value, (u32 *) arg);
 			break;
@@ -1653,18 +1655,22 @@ oscillator_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			get_user(adjust, (u32 *) arg);
 			ctrl &= OSC_CTRL_ADJUST_TYPE_FINE;
 			ret = __write_oscillator_locked(osc_reg, ctrl, adjust);
+			printk("Wrote FINE, ret is %d and value is %d", ret, adjust);
 			break;
 		case MRO50_ADJUST_COARSE:
 			get_user(adjust, (u32 *) arg);
 			ctrl |= OSC_CTRL_ADJUST_TYPE_COARSE;
 			ret = __write_oscillator_locked(osc_reg, ctrl, adjust);
+			printk("Wrote COARSE, ret is %d and value is %d", ret, adjust);
 			break;
 		case MRO50_READ_TEMP:
 			temp_value = ioread32(&osc_reg->temp);
+			printk("Read TEMP, value is %d", temp_value);
 			put_user(temp_value, (u32 *) arg);
 			break;
 		case MRO50_READ_CTRL:
 			put_user(ctrl, (u32 *) arg);
+			printk("Read CTRL, value is %d", ret, ctrl);
 			break;
 		default:
 			mutex_unlock(&osc->lock);
