@@ -383,6 +383,9 @@ static struct ocp_resource ocp_art_resource[] = {
 			},
 		},
 	},
+	{
+		.setup = ptp_ocp_orolia_board_init
+	},
 	{ }
 };
 
@@ -1465,6 +1468,15 @@ ptp_ocp_fb_board_init(struct ptp_ocp *bp, struct ocp_resource *r)
 	bp->flash_start = 1024 * 4096;
 
 	return ptp_ocp_init_clock(bp);
+}
+
+/* Orolia specific board initializers; last "resource" registered */
+static int
+ptp_ocp_orolia_board_init(struct ptp_ocp *bp, struct ocp_resource *r)
+{
+	bp->flash_start = 0;
+
+	return 0;
 }
 
 static int
