@@ -195,6 +195,7 @@ static int ptp_ocp_register_spi(struct ptp_ocp *bp, struct ocp_resource *r);
 static int ptp_ocp_register_serial(struct ptp_ocp *bp, struct ocp_resource *r);
 static int ptp_ocp_register_ext(struct ptp_ocp *bp, struct ocp_resource *r);
 static int ptp_ocp_fb_board_init(struct ptp_ocp *bp, struct ocp_resource *r);
+static int ptp_ocp_orolia_board_init(struct ptp_ocp *bp, struct ocp_resource *r);
 static irqreturn_t ptp_ocp_ts_irq(int irq, void *priv);
 static irqreturn_t ptp_ocp_phase_irq(int irq, void *priv);
 static irqreturn_t ptp_ocp_pps_irq(int irq, void *priv);
