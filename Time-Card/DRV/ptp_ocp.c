@@ -1324,6 +1324,7 @@ phasemeter_irq_handler(int irq, void* dev_id)
 	spin_lock_irqsave(&phasemeter->lock, flags);
 
 	phasemeter->phase_error = readl(phasemeter->reg);
+	printk("PHASE ERROR is %d\n", phasemeter->phase_error);
 	if (unlikely(abs(phasemeter->phase_error) > 500000000)) {
 		pr_info("[%s] phase error is too big, reset issued\n",
 			phasemeter->misc.name);
@@ -1409,6 +1410,7 @@ phasemeter_device_read(struct file *file, char *buf,
 	}
 
 	data = phasemeter->phase_error;
+	printk("Output from Phasemeter: %d\n", data);
 	atomic_set(&phasemeter->data_available, false);
 	spin_unlock_irqrestore(&phasemeter->lock, flags);
 
