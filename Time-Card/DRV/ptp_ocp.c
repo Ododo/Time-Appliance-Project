@@ -1476,7 +1476,7 @@ ptp_ocp_fb_board_init(struct ptp_ocp *bp, struct ocp_resource *r)
 static int
 ptp_ocp_orolia_board_init(struct ptp_ocp *bp, struct ocp_resource *r)
 {
-	bp->flash_start = 0;
+	bp->flash_start = 0x01000000;
 
 	return 0;
 }
