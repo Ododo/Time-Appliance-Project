@@ -15,6 +15,7 @@
 #include <linux/i2c.h>
 #include <linux/mtd/mtd.h>
 #include <linux/proc_fs.h>
+#include <linux/platform_data/i2c-ocores.h>
 
 #ifndef PCI_VENDOR_ID_FACEBOOK
 #define PCI_VENDOR_ID_FACEBOOK 0x1d9b
@@ -131,6 +132,13 @@ struct ptp_ocp_flash_info {
 	void *data;
 };
 
+struct ptp_ocp_i2c_info {
+	const char *name;
+	unsigned long fixed_rate;
+	size_t data_size;
+	void *data;
+};
+
 struct ptp_ocp_ext_info {
 	const char *name;
 	int index;
@@ -163,6 +171,7 @@ struct ptp_ocp {
 	struct platform_device	*i2c_osc;
 	struct platform_device	*spi_imu;
 	struct platform_device	*spi_flash;
+	struct platform_device	*i2c_flash;
 	struct proc_dir_entry	*i2c_pde;
 	struct clk_hw		*i2c_clk;
 	struct devlink_health_reporter *health;
@@ -286,6 +295,10 @@ static struct ocp_resource ocp_fb_resource[] = {
 	{
 		OCP_I2C_RESOURCE(i2c_osc),
 		.offset = 0x00150000, .size = 0x10000, .irq_vec = 7,
+		.extra = &(struct ptp_ocp_i2c_info) {
+			.name = "xiic-i2c",
+			.fixed_rate = 500000,
+		},
 	},
 	{
 		OCP_SERIAL_RESOURCE(gps_port),
@@ -380,6 +393,24 @@ static struct ocp_resource ocp_art_resource[] = {
 				.num_devices = 1,
 				.devices = &(struct spi_board_info) {
 					.modalias = "spi-nor",
+				},
+			},
+		},
+	},
+	{
+		OCP_I2C_RESOURCE(i2c_flash),
+		.offset = 0x350000, .size = 0x100, .irq_vec = 4,
+		.extra = &(struct ptp_ocp_i2c_info) {
+			.name = "ocores-i2c",
+			.fixed_rate = 400000,
+			.data_size = sizeof(struct ocores_i2c_platform_data),
+			.data = &(struct ocores_i2c_platform_data) {
+				.clock_khz = 125000,
+				.bus_khz = 400,
+				.num_devices = 1,
+				.devices = &(struct i2c_board_info) {
+					.addr = 0x50,
+					.type = "24c08",
 				},
 			},
 		},
@@ -1176,13 +1207,15 @@ ptp_ocp_i2c_bus(struct pci_dev *pdev, struct ocp_resource *r, int id)
 {
 	struct resource res[2];
 	unsigned long start;
+	struct ptp_ocp_i2c_info *info;
 
+	info = r->extra;
 	start = pci_resource_start(pdev, 0) + r->offset;
 	ptp_ocp_set_mem_resource(&res[0], start, r->size);
 	ptp_ocp_set_irq_resource(&res[1], pci_irq_vector(pdev, r->irq_vec));
 
-	return platform_device_register_resndata(&pdev->dev, "xiic-i2c",
-						 id, res, 2, NULL, 0);
+	return platform_device_register_resndata(&pdev->dev, info->name,
+						 id, res, 2, info->data, info->data_size);
 }
 
 static int
@@ -1191,8 +1224,14 @@ ptp_ocp_register_i2c(struct ptp_ocp *bp, struct ocp_resource *r)
 	struct pci_dev *pdev = bp->pdev;
 	struct platform_device *p;
 	struct clk_hw *clk;
+	struct ptp_ocp_i2c_info *info;
 	char buf[32];
 	int id;
+
+	info = r->extra;
+	if (!info) {
+		return -EINVAL;
+	}
 
 	if (r->irq_vec > bp->n_irqs) {
 		dev_err(&bp->pdev->dev, "i2c device irq %d out of range\n",
@@ -1203,7 +1242,7 @@ ptp_ocp_register_i2c(struct ptp_ocp *bp, struct ocp_resource *r)
 	id = pci_dev_id(bp->pdev);
 
 	sprintf(buf, "AXI.%d", id);
-	clk = clk_hw_register_fixed_rate(&pdev->dev, buf, NULL, 0, 50000000);
+	clk = clk_hw_register_fixed_rate(&pdev->dev, buf, NULL, 0, info->fixed_rate);
 	if (IS_ERR(clk))
 		return PTR_ERR(clk);
 	bp->i2c_clk = clk;
@@ -1685,6 +1724,8 @@ ptp_ocp_detach(struct ptp_ocp *bp)
 		platform_device_unregister(bp->spi_imu);
 	if (bp->spi_flash)
 		platform_device_unregister(bp->spi_flash);
+	if (bp->i2c_flash)
+		platform_device_unregister(bp->i2c_flash);
 	if (bp->i2c_osc)
 		platform_device_unregister(bp->i2c_osc);
 	if (bp->i2c_clk)
